@@ -1,9 +1,8 @@
-import Patient from "./Patient";
 import db from "./db";
 import { readFileSync } from "node:fs";
 import * as http from "node:http";
 import { faker } from "@faker-js/faker";
-import { Op, Sequelize } from "sequelize";
+import { Patient, Group } from "./Models";
 
 http
   .createServer(async function (request, res) {
@@ -45,96 +44,51 @@ http
           testRecords.push(res);
         }
 
+        const testGroups = [];
+
+        for await (const res of asyncInsertGroup(3)) {
+          testGroups.push(res);
+        }
+
+        // @ts-ignore
+        await testRecords[0].addGroups(testGroups);
+
         return response.json({
           db: {
             connection: await checkDatabaseConnection(),
             queries: [
-              // await testDatabaseQuery(
-              //   Patient.findOne({
-              //     where: {
-              //       document: {
-              //         id: testRecords[0].document.id,
-              //       },
-              //     },
-              //   })
-              // ),
-              // await testDatabaseQuery(
-              //   Patient.findOne({
-              //     where: {
-              //       document: {
-              //         id: testRecords[0].document.id,
-              //       },
-              //     },
-              //   })
-              // ),
-              // await testDatabaseQuery(
-              //   Patient.findOne({
-              //     where: {
-              //       document: {
-              //         [Op.contains]: {
-              //           name: [{ text: testRecords[1].document.name[0].text }],
-              //         },
-              //       },
-              //     },
-              //   })
-              // ),
-              // await testDatabaseQuery(
-              //   Patient.findOne({
-              //     where: {
-              //       document: {
-              //         [Op.contains]: {
-              //           externalPatientIds: [
-              //             {
-              //               externalId:
-              //                 testRecords[1].document.externalPatientIds[0]
-              //                   .externalId,
-              //               externalHumanIdType: {
-              //                 id: testRecords[1].document.externalPatientIds[0]
-              //                   .externalHumanIdType.id,
-              //               },
-              //             },
-              //           ],
-              //         },
-              //       },
-              //     },
-              //   })
-              // ),
+              // @ts-ignore
+              await testRecords[0].getGroups(),
               await testDatabaseQuery(
-                Patient.findAll({
-                  // attributes: [
-                  //   [
-                  //     Sequelize.literal(
-                  //       "jsonb_array_elements(\"document\" -> 'name') -> 'text'"
-                  //     ),
-                  //     "kosio",
-                  //   ],
-                  // ],
-                  where: Sequelize.literal(
-                    "\"document\" -> 'name' -> 0 ->> 'text' LIKE 'Guadalupe%'"
-                    // '"document" @> \'{"name":[{"text":"Jessie Bernice"}]}\''
-                    // "jsonb_array_elements(\"Patient\" . \"document\" -> 'name') -> 'text' = 'Jessie Bernice'"
-                    // "(\"Patient\".\"document\"#>>'{id}') = '2QQUadIzPBMJAA7Em3kLgP'"
-                  ),
+                Patient.findOne({
+                  where: {
+                    document: {
+                      id: testRecords[0].document.id,
+                    },
+                  },
+                  include: "Groups",
                 })
               ),
-              // await testDatabaseQuery(
-              //   Patient.findAll({
-              //     where: Sequelize.literal(
-              //       "\"document\" -> 'name' -> 0 ->> 'text' LIKE 'Guadalupe%'"
-              //       // '"document" @> \'{"name":[{"text":"Jessie Bernice"}]}\''
-              //       // "jsonb_array_elements(\"Patient\" . \"document\" -> 'name') -> 'text' = 'Jessie Bernice'"
-              //       // "(\"Patient\".\"document\"#>>'{id}') = '2QQUadIzPBMJAA7Em3kLgP'"
-              //     ),
-              //   })
-              // ),
+              await testDatabaseQuery(
+                Group.findOne({
+                  where: {
+                    document: {
+                      id: testGroups[0].document.id,
+                    },
+                  },
+                  include: "Patients",
+                })
+              ),
             ],
           },
         });
-      //
       case "/sync":
-        return Patient.sync({ alter: true })
-          .then(() => response.json({ sync: true }))
-          .catch(() => response.json({ sync: true }));
+        return response.json({
+          sync: await db
+            .sync({ force: true })
+            .then(() => true)
+            .catch(() => false),
+        });
       case "/seed":
         const limit = parseInt(url.searchParams.get("limit") ?? "5000");
         const timer = new Timer();
@@ -153,7 +107,7 @@ http
   .listen(9020);
 
 async function* asyncInsert(limit: number) {
-  for (let i = 0; i <= limit; i++) {
+  for (let i = 0; i < limit; i++) {
     yield new Promise<Promise<Patient>>((resolve, reject) => {
       const newPatient = randomFhirPatient();
 
@@ -166,6 +120,18 @@ async function* asyncInsert(limit: number) {
     });
   }
 }
+async function* asyncInsertGroup(limit: number) {
+  for (let i = 0; i < limit; i++) {
+    yield new Promise<Promise<Group>>((resolve, reject) => {
+      const newGroup = randomFhirGroup();
+      const group = Group.create({
+        id: Math.random().toString(16).substring(2),
+        document: newGroup,
+      });
+      resolve(group);
+    });
+  }
+}
 
 async function testDatabaseQuery(query: Promise<Patient | Patient[] | null>) {
   const timer = new Timer();
@@ -173,7 +139,6 @@ async function testDatabaseQuery(query: Promise<Patient | Patient[] | null>) {
   const result = await query;
 
   return { result, timer: timer.stop() };
-  return { timer: timer.stop() };
 }
 
 async function checkDatabaseConnection() {
@@ -186,6 +151,7 @@ async function checkDatabaseConnection() {
     return false;
   }
 }
+
 function randomFhirPatient() {
   const sex = faker.person.sexType();
 
@@ -269,6 +235,13 @@ function randomFhirPatient() {
       remotePatientMonitoring: { enabled: false, taskCodesForJournaling: [] },
       remoteSupervision: { enabled: false },
     },
+  };
+}
+
+function randomFhirGroup() {
+  return {
+    id: faker.string.alphanumeric(22),
+    name: faker.person.fullName(),
   };
 }
 
