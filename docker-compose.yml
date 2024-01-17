@@ -1,0 +1,22 @@
+services:
+  node:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "9020:9020"
+    volumes:
+      - ./:/app
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        npm install
+        npm run start
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: test
+  adminer:
+    image: adminer
+    ports:
+      - 9030:8080
